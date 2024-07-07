@@ -63,3 +63,5 @@ notify-send "Image URL copied to clipboard" -a "Flameshot" -i $temp_file
 
 # Clean up temporary files
 cleanup
+
+exit 0
