@@ -1,90 +1,65 @@
 #!/bin/bash -e
 
 # Configuration
-auth="KEY" # Replace with your actual API key
-url="https://constelia.ai/api.php"
-cmd="upload"
-expire="0"  # Set expire time as needed, 0 means file remains public indefinitely
+constelia_uploader_cmd="/home/lu/Documents/FC/constelia-upload"
 
 # Temporary files
 temp_file="/tmp/screenshot.png"
-response_file="/tmp/upload.json"
 error_log="/tmp/error.log"
-raw_response_file="/tmp/raw_response.txt"
-headers_file="/tmp/headers.txt"
-body_file="/tmp/body.txt"
+upload_output_log="/tmp/upload_output.log"
 
 # Function to clean up temporary files
 cleanup() {
-    rm -f $temp_file $response_file $raw_response_file $headers_file $body_file
+    echo "Cleaning up temporary files."
+    rm -f $temp_file
 }
 
 # Take screenshot using Flameshot and save to a temporary file
+echo "Taking a screenshot with Flameshot."
 flameshot gui -r > $temp_file
 
 # Validate the screenshot file type
+echo "Validating the screenshot file type."
 if [[ $(file --mime-type -b $temp_file) != "image/png" ]]; then
     echo "Invalid file type" | tee -a $error_log
     cleanup
     exit 1
 fi
 
-# Upload the screenshot using curl
-curl -X POST \
-     -F "file=@$temp_file" \
-     -F "key=$auth" \
-     -F "cmd=$cmd" \
-     -F "expire=$expire" \
-     -v "$url" \
-     -D $headers_file -o $body_file 2>&1 | tee -a $error_log
-
-# Save the raw response to a file
-cat $headers_file > $raw_response_file
-echo "" >> $raw_response_file
-cat $body_file >> $raw_response_file
-
-# Detect the Content-Type header
-content_type=$(grep -i "Content-Type" $headers_file | awk '{print tolower($2)}' | tr -d '\r')
-
-# Process the response based on Content-Type
-if [[ "$content_type" =~ "application/json" ]]; then
-    json_response=$(cat $body_file)
-    echo "$json_response" > $response_file
-elif [[ "$content_type" =~ "text/plain" ]]; then
-    json_response=$(cat $body_file | awk 'BEGIN { in_json=0 } /{.*}/ { in_json=1 } { if (in_json) print }')
-    echo "$json_response" > $response_file
-else
-    notify-send "Error: Unsupported Content-Type ($content_type)" -a "Flameshot"
-    echo "Unsupported Content-Type ($content_type)" | tee -a $error_log
+# Check if the constelia_upload executable exists and is executable
+echo "Checking if the constelia_upload executable exists and is executable."
+if [[ ! -x $constelia_uploader_cmd ]]; then
+    echo "constelia_upload executable not found or not executable: $constelia_uploader_cmd" | tee -a $error_log
     cleanup
     exit 1
 fi
 
-# Validate the JSON
-if ! jq -e . >/dev/null 2>&1 < $response_file; then
-    notify-send "Error: Invalid JSON response." -a "Flameshot"
-    echo "Invalid JSON response" | tee -a $error_log
+# Upload the screenshot using constelia_upload and capture both stdout and stderr
+echo "Uploading the screenshot using constelia_upload."
+upload_output=$( "$constelia_uploader_cmd" "$temp_file" 2>&1 | tee -a $error_log $upload_output_log )
+
+# Check if constelia_upload succeeded (assuming it returns a non-zero exit code on failure)
+if [[ $? -ne 0 ]]; then
+    notify-send "Error: Upload failed." -a "Flameshot"
+    echo "Error: Upload failed" | tee -a $error_log
     cleanup
     exit 1
 fi
 
-# Extract fields from the JSON response
-success=$(jq -r ".success" < $response_file)
-image_url=$(jq -r ".url" < $response_file)
-error=$(jq -r ".error" < $response_file)
+# Extract the URL from the upload output
+url=$(grep -o 'https://[^ ]*' "$upload_output_log")
 
-# Check the success status
-if [[ "$success" != "true" ]] || [[ "$image_url" == "null" ]]; then
-    notify-send "Error: ${error:-Unknown error occurred}" -a "Flameshot"
-    echo "Error: ${error:-Unknown error occurred}" | tee -a $error_log
+# Check if we found a URL
+if [[ -z "$url" ]]; then
+    notify-send "Error: No URL found in the upload output." -a "Flameshot"
+    echo "Error: No URL found in the upload output" | tee -a $error_log
     cleanup
     exit 1
 fi
 
 # Copy the URL to the clipboard and notify the user
-echo "$image_url" | xclip -sel c
+echo "$url" | xclip -sel c
 notify-send "Image URL copied to clipboard" -a "Flameshot" -i $temp_file
 
 # Clean up temporary files
 cleanup
-
