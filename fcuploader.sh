@@ -59,7 +59,6 @@ fi
 
 # Copy the URL to the clipboard and notify the user
 echo "$url" | xclip -sel c
-notify-send "Image URL copied to clipboard" -a "Flameshot" -i $temp_file
 
 # Clean up temporary files
 cleanup
