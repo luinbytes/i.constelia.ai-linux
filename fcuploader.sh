@@ -57,9 +57,6 @@ if [[ -z "$url" ]]; then
     exit 1
 fi
 
-# Copy the URL to the clipboard and notify the user
-echo "$url" | xclip -sel c
-
 # Clean up temporary files
 cleanup
 
